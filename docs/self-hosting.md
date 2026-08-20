@@ -11,6 +11,8 @@
 
 ```bash
 cp .env.example .env
+# genera las contraseñas: la de la base de datos y el secreto de sesión
+sed -i.bak "s|cambia-esta-clave|$(openssl rand -hex 16)|g; s|cambia-esto-por-un-secreto-largo|$(openssl rand -base64 32)|" .env && rm .env.bak
 docker compose up -d
 ```
 
