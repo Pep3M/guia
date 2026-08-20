@@ -31,7 +31,9 @@ Shadcn/UI + Tailwind · Vitest
 ```bash
 git clone https://github.com/Pep3M/guia.git
 cd guia
-cp .env.example .env      # define POSTGRES_PASSWORD y BETTER_AUTH_SECRET
+cp .env.example .env
+# genera las contraseñas: la de la base de datos y el secreto de sesión
+sed -i.bak "s|cambia-esta-clave|$(openssl rand -hex 16)|g; s|cambia-esto-por-un-secreto-largo|$(openssl rand -base64 32)|" .env && rm .env.bak
 docker compose up -d
 ```
 
