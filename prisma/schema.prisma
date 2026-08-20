@@ -1,0 +1,487 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// ============================================
+// PHASE 2: AUTHENTICATION & MULTI-TENANCY
+// ============================================
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  emailVerified  Boolean   @default(false)
+  image          String?
+  isActive       Boolean   @default(true)
+  disabledAt     DateTime?
+  disabledBy     String? // userId of admin who disabled
+  disabledReason String?   @db.Text
+
+  // Permisos globales de la instancia. Actúan como techo: si están en false,
+  // ningún permiso de organización puede concederlos. Se gestionan por SQL o
+  // por la edición empresarial; por defecto todos están permitidos.
+  canUploadDocuments     Boolean @default(true)
+  canCreateConversations Boolean @default(true)
+  canInviteUsers         Boolean @default(true)
+
+  createdAt               DateTime                      @default(now())
+  updatedAt               DateTime                      @updatedAt
+  memberships             Membership[]
+  sessions                Session[]
+  accounts                Account[]
+  organizationPermissions OrganizationUserPermissions[]
+  userTokenLimits         UserTokenLimits[]
+  groupMemberships        GroupMember[]
+  avatarUploadLogs        AvatarUploadLog[]
+
+  @@index([isActive])
+  @@index([email])
+}
+
+model Account {
+  id           String    @id @default(cuid())
+  userId       String
+  accountId    String
+  providerId   String
+  accessToken  String?   @db.Text
+  refreshToken String?   @db.Text
+  idToken      String?   @db.Text
+  expiresAt    DateTime?
+  password     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Organization {
+  id                      String                        @id @default(cuid())
+  name                    String
+  slug                    String                        @unique
+  createdAt               DateTime                      @default(now())
+  updatedAt               DateTime                      @updatedAt
+  memberships             Membership[]
+  knowledgeSources        KnowledgeSource[]
+  categories              Category[]
+  conversations           Conversation[]
+  invitations             Invitation[]
+  userPermissions         OrganizationUserPermissions[]
+  userTokenLimits         UserTokenLimits[]
+  groups                  Group[]
+  slackIntegrations       SlackIntegration[]
+  slackIntegrationLogs    SlackIntegrationLog[]
+
+  @@index([slug])
+}
+
+model Membership {
+  id             String       @id @default(cuid())
+  role           String // OWNER, ADMIN, MEMBER
+  userId         String
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+}
+
+model Invitation {
+  id             String       @id @default(cuid())
+  email          String
+  role           String // ADMIN, MEMBER
+  token          String       @unique
+  organizationId String
+  invitedBy      String
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([email])
+  @@index([token])
+  @@index([organizationId])
+}
+
+// ============================================
+// PHASE 3: CATEGORIES & CONVERSATIONS
+// ============================================
+
+model Category {
+  id                String                     @id @default(cuid())
+  name              String
+  description       String?
+  color             String?
+  organizationId    String
+  organization      Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sources           KnowledgeSource[]          @relation("KnowledgeSourceCategoryLegacy")
+  sourceCategories  KnowledgeSourceCategory[]
+  groupAccess       GroupCategoryAccess[]
+  slackIntegrations SlackIntegrationCategory[]
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  @@unique([name, organizationId])
+  @@index([organizationId])
+}
+
+model Conversation {
+  id             String       @id @default(cuid())
+  title          String
+  organizationId String
+  userId         String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  messages       Message[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([organizationId, userId])
+}
+
+// ============================================
+// PHASE 1: MVP - UPDATED FOR MULTI-TENANCY
+// ============================================
+
+model KnowledgeSource {
+  id             String                    @id @default(cuid())
+  fileName       String
+  fileUrl        String
+  fileType       String
+  fileSizeBytes  BigInt? // Size of the file in bytes (null for legacy documents)
+  status         String                    @default("pending") // pending, processing, completed, error
+  errorMessage   String?
+  organizationId String
+  categoryId     String? // Legacy field - mantener temporalmente para migración
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category       Category?                 @relation("KnowledgeSourceCategoryLegacy", fields: [categoryId], references: [id], onDelete: SetNull)
+  categories     KnowledgeSourceCategory[]
+  chunks         Chunk[]
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([organizationId, status])
+}
+
+model Chunk {
+  id             String                       @id @default(cuid())
+  content        String                       @db.Text
+  embedding      Unsupported("vector(1536)")? // Debe coincidir con EMBEDDING_DIMENSIONS (ver docs/self-hosting.md)
+  metadata       Json // page, section, etc
+  sourceId       String
+  organizationId String
+  source         KnowledgeSource              @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime                     @default(now())
+
+  @@index([sourceId])
+  @@index([organizationId])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  role           String // user, assistant
+  content        String       @db.Text
+  sources        Json? // array of {chunkId, sourceId, fileName, excerpt}
+  conversationId String
+  organizationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@index([organizationId])
+}
+
+// ============================================
+// TOKEN USAGE TRACKING
+// ============================================
+
+model TokenUsage {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  operation      String // embedding, chat
+  tokensInput    Int
+  tokensOutput   Int
+  tokensTotal    Int
+  costUSD        Float
+  model          String
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([operation])
+  @@index([organizationId, createdAt])
+}
+
+model OrganizationLimits {
+  id                  String    @id @default(cuid())
+  organizationId      String    @unique
+  dailyTokenLimit     Int? // null = sin límite
+  monthlyTokenLimit   Int? // null = sin límite
+  dailyRequestLimit   Int? // null = sin límite
+  monthlyRequestLimit Int? // null = sin límite
+  isBlocked           Boolean   @default(false)
+  blockedReason       String?   @db.Text
+  blockedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  updatedBy           String? // userId del administrador que lo actualizó
+
+  @@index([organizationId])
+  @@index([isBlocked])
+}
+
+model UserTokenLimits {
+  id                String   @id @default(cuid())
+  organizationId    String
+  userId            String
+  dailyTokenLimit   Int? // null = sin límite (hereda del límite de la organización)
+  monthlyTokenLimit Int? // null = sin límite (hereda del límite de la organización)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  updatedBy         String? // userId del owner que estableció el límite
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+  @@index([organizationId, userId])
+}
+
+// ============================================
+// ORGANIZATION USER PERMISSIONS
+// ============================================
+
+model OrganizationUserPermissions {
+  id                     String   @id @default(cuid())
+  organizationId         String
+  userId                 String
+  // Permisos específicos de la organización (null = usar permisos globales del usuario)
+  canUploadDocuments     Boolean?
+  canCreateConversations Boolean?
+  canInviteUsers         Boolean?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
+}
+
+/// Registro de subidas de avatar para limitar frecuencia diaria
+model AvatarUploadLog {
+  id         String   @id @default(cuid())
+  userId     String
+  uploadedAt DateTime @default(now())
+  blobUrl    String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, uploadedAt])
+}
+
+// ============================================
+// GROUPS & CATEGORY ACCESS CONTROL
+// ============================================
+
+model Group {
+  id             String                @id @default(cuid())
+  name           String
+  description    String?
+  organizationId String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        GroupMember[]
+  categoryAccess GroupCategoryAccess[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([name, organizationId])
+  @@index([organizationId])
+}
+
+model GroupMember {
+  id        String   @id @default(cuid())
+  userId    String
+  groupId   String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, groupId])
+  @@index([userId])
+  @@index([groupId])
+}
+
+model GroupCategoryAccess {
+  id         String   @id @default(cuid())
+  groupId    String
+  categoryId String
+  group      Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([groupId, categoryId])
+  @@index([groupId])
+  @@index([categoryId])
+}
+
+model KnowledgeSourceCategory {
+  id         String          @id @default(cuid())
+  sourceId   String
+  categoryId String
+  source     KnowledgeSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  category   Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime        @default(now())
+
+  @@unique([sourceId, categoryId])
+  @@index([sourceId])
+  @@index([categoryId])
+}
+
+model SlackIntegration {
+  id                 String                     @id @default(cuid())
+  organizationId     String
+  name               String
+  description        String?
+  slug               String
+  slackTeamId        String?
+  slackTeamName      String?
+  slackAppId         String?
+  slackClientId      String?                    @db.Text
+  slackClientSecret  String?                    @db.Text
+  slackSigningSecret String?                    @db.Text
+  slackBotToken      String?                    @db.Text
+  slackBotUserId     String?
+  slackBotUserName   String?
+  defaultThread      Boolean                    @default(true)
+  isActive           Boolean                    @default(true)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  organization       Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  categories         SlackIntegrationCategory[]
+  logs               SlackIntegrationLog[]
+  threads            SlackThread[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@index([slackTeamId])
+  @@index([slackBotUserId])
+}
+
+model SlackIntegrationCategory {
+  id            String           @id @default(cuid())
+  integrationId String
+  categoryId    String
+  integration   SlackIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  category      Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt     DateTime         @default(now())
+
+  @@unique([integrationId, categoryId])
+  @@index([integrationId])
+  @@index([categoryId])
+}
+
+model SlackIntegrationLog {
+  id                    String           @id @default(cuid())
+  integrationId         String
+  organizationId        String
+  slackTeamId           String?
+  slackChannelId        String?
+  slackChannel          String?
+  slackThreadTs         String?
+  slackUserId           String?
+  slackUserName         String?
+  slackUserEmail        String?
+  organizationUserId    String?
+  organizationUserName  String?
+  organizationUserEmail String?
+  question              String           @db.Text
+  answer                String?          @db.Text
+  error                 String?          @db.Text
+  tokensInput           Int?
+  tokensOutput          Int?
+  responseTimeMs        Int?
+  createdAt             DateTime         @default(now())
+  integration           SlackIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  organization          Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([integrationId])
+  @@index([organizationId])
+  @@index([createdAt])
+  @@index([organizationUserId])
+  @@index([integrationId, slackChannelId, slackThreadTs])
+}
+
+model SlackThread {
+  id             String               @id @default(cuid())
+  integrationId  String
+  slackTeamId    String?
+  slackChannelId String
+  slackThreadTs  String
+  slackUserId    String?
+  slackUserName  String?
+  lastMessageAt  DateTime             @default(now())
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  integration    SlackIntegration     @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  messages       SlackThreadMessage[]
+
+  @@unique([integrationId, slackThreadTs])
+  @@index([integrationId])
+  @@index([slackChannelId])
+  @@index([integrationId, slackChannelId, slackThreadTs])
+}
+
+model SlackThreadMessage {
+  id             String      @id @default(cuid())
+  threadId       String
+  role           String
+  content        String      @db.Text
+  slackMessageTs String?
+  slackUserId    String?
+  slackUserName  String?
+  createdAt      DateTime    @default(now())
+  thread         SlackThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId])
+  @@index([slackMessageTs])
+}

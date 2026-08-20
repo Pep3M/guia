@@ -1,0 +1,61 @@
+# Stack completo autohospedado: base de datos con pgvector, modelos locales y la app.
+#
+#   cp .env.example .env   # revisa BETTER_AUTH_SECRET y POSTGRES_PASSWORD
+#   docker compose up -d
+#   docker compose exec ollama ollama pull qwen2.5:14b-instruct
+#   docker compose exec ollama ollama pull bge-m3
+#
+# Para usar un proveedor externo en lugar de modelos locales, borra el servicio
+# `ollama` y apunta AI_BASE_URL / AI_API_KEY a donde corresponda.
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-guia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: ${POSTGRES_DB:-guia}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-guia} -d ${POSTGRES_DB:-guia}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    # Descomenta para usar GPU NVIDIA (requiere nvidia-container-toolkit).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-guia}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-guia}
+      AI_BASE_URL: ${AI_BASE_URL:-http://ollama:11434/v1}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_PATH: /data/storage
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - app-storage:/data/storage
+
+volumes:
+  db-data:
+  ollama-data:
+  app-storage:

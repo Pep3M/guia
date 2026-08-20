@@ -1,0 +1,44 @@
+---
+alwaysApply: true
+description: Git commit policy - never commit without explicit user confirmation
+---
+
+# Git Commit Policy
+
+## IMPORTANT: Never Auto-Commit
+
+**NEVER** commit changes to git without **explicit user confirmation**.
+
+### Rules:
+
+1. ✅ **DO**: Make code changes, create files, modify files
+2. ✅ **DO**: Stage changes with `git add` if needed for review
+3. ✅ **DO**: Show `git status` or `git diff` to help user review changes
+4. ❌ **DON'T**: Run `git commit` unless the user explicitly asks to commit
+5. ❌ **DON'T**: Assume the user wants changes committed automatically
+
+### When User Explicitly Requests Commit:
+
+Only then you may run `git commit` with an appropriate message.
+
+Examples of explicit requests:
+- "commit these changes"
+- "haz commit"
+- "commitea esto"
+- "guarda los cambios en git"
+
+### After Completing Tasks:
+
+Instead of committing automatically, inform the user:
+
+```
+✅ Changes completed successfully!
+
+Files modified:
+- file1.tsx
+- file2.ts
+
+To commit these changes, you can review them and let me know if you want me to commit them.
+```
+
+**Remember**: The user is in control of when changes are committed to version control.
