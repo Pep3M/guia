@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import path from 'node:path'
 
 import {
@@ -49,5 +49,54 @@ describe('URLs locales', () => {
     expect(isLocalFileUrl('/api/files/docs/a.pdf')).toBe(true)
     expect(isLocalFileUrl('https://x.blob.vercel-storage.com/a.pdf')).toBe(false)
     expect(keyFromLocalUrl('/api/files/docs/informe%20anual.pdf')).toBe('docs/informe anual.pdf')
+  })
+})
+
+describe('configuración S3', () => {
+  const env = { ...process.env }
+
+  afterEach(() => {
+    process.env = { ...env }
+  })
+
+  test('exige las variables imprescindibles y las nombra', async () => {
+    delete process.env.S3_ENDPOINT
+    delete process.env.S3_BUCKET
+    delete process.env.S3_ACCESS_KEY_ID
+    delete process.env.S3_SECRET_ACCESS_KEY
+
+    const { s3Config } = await import('@/lib/storage')
+
+    expect(() => s3Config()).toThrow(/S3_ENDPOINT.*S3_BUCKET/)
+  })
+
+  test('usa path-style por defecto, como necesita MinIO', async () => {
+    process.env.S3_ENDPOINT = 'http://minio:9000'
+    process.env.S3_BUCKET = 'guia'
+    process.env.S3_ACCESS_KEY_ID = 'key'
+    process.env.S3_SECRET_ACCESS_KEY = 'secret'
+    delete process.env.S3_FORCE_PATH_STYLE
+
+    const { s3Config, s3ObjectUrl } = await import('@/lib/storage')
+    const config = s3Config()
+
+    expect(config.forcePathStyle).toBe(true)
+    expect(s3ObjectUrl(config, 'docs/informe anual.pdf')).toBe(
+      'http://minio:9000/guia/docs/informe%20anual.pdf'
+    )
+  })
+
+  test('usa virtual-host style cuando se desactiva, como en R2 y AWS', async () => {
+    process.env.S3_ENDPOINT = 'https://cuenta.r2.cloudflarestorage.com'
+    process.env.S3_BUCKET = 'guia'
+    process.env.S3_ACCESS_KEY_ID = 'key'
+    process.env.S3_SECRET_ACCESS_KEY = 'secret'
+    process.env.S3_FORCE_PATH_STYLE = 'false'
+
+    const { s3Config, s3ObjectUrl } = await import('@/lib/storage')
+
+    expect(s3ObjectUrl(s3Config(), 'a.pdf')).toBe(
+      'https://guia.cuenta.r2.cloudflarestorage.com/a.pdf'
+    )
   })
 })

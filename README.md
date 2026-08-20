@@ -16,7 +16,9 @@ y deja que tu equipo pregunte en lenguaje natural. Las respuestas se construyen
 - **Multi-organización.** Una instalación puede servir a varios departamentos o
   empresas, cada uno con sus documentos y sus miembros.
 - **Sin dependencia de terceros.** Modelos, embeddings, base de datos y archivos
-  pueden vivir enteros en tu servidor.
+  pueden vivir enteros en tu servidor: Ollama o vLLM para la inferencia,
+  PostgreSQL con pgvector para los vectores, y disco local o MinIO para los
+  documentos.
 - **Integraciones.** Slack, para preguntar desde donde ya trabaja el equipo.
 
 ## Stack
@@ -31,14 +33,21 @@ git clone https://github.com/Pep3M/guia.git
 cd guia
 cp .env.example .env      # define POSTGRES_PASSWORD y BETTER_AUTH_SECRET
 docker compose up -d
-
-# descarga los modelos locales (una sola vez)
-docker compose exec ollama ollama pull qwen2.5:14b-instruct
-docker compose exec ollama ollama pull bge-m3
 ```
 
-La aplicación queda en http://localhost:3000. Las migraciones se aplican solas al
-arrancar el contenedor.
+Eso levanta PostgreSQL con pgvector, Ollama con los modelos y la aplicación en
+http://localhost:3000. Las migraciones y la descarga de modelos se hacen solas;
+la primera vez tarda, porque son varios GB.
+
+Cuando termine, comprueba la instalación:
+
+```bash
+docker compose --profile tools run --rm tools bun run doctor
+```
+
+Verifica contra los servicios reales la base de datos, ambos modelos y el
+almacenamiento, y avisa de los problemas que no dan error visible —como que el
+modelo esté truncando el contexto.
 
 ## Probar sin instalar nada
 
@@ -73,6 +82,8 @@ Comandos útiles:
 | `bun run test:integration` | Tests de integración |
 | `bun run db:migrate` | Aplica migraciones en desarrollo |
 | `bun run db:studio` | Explorador de la base de datos |
+| `bun run doctor` | Diagnostica modelos, base de datos y almacenamiento |
+| `bun run demo:seed` | Siembra la organización de demostración |
 
 ## Modelos
 

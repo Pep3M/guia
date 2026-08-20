@@ -1,0 +1,16 @@
+# Modelo de chat con la ventana de contexto ampliada.
+#
+# Ollama usa num_ctx=4096 por defecto y descarta en silencio lo que sobra. Con
+# RAG eso significa respuestas pobres sin ningún error visible: el prompt de
+# sistema más los fragmentos de documento más el historial superan ese límite
+# con facilidad. Por eso el stack no usa el modelo base directamente, sino
+# esta variante.
+#
+# Subir num_ctx cuesta VRAM. 8192 es un punto razonable para 24 GB con un
+# modelo de 14B cuantizado; si te sobra memoria, sube a 16384.
+
+FROM qwen2.5:14b-instruct
+
+PARAMETER num_ctx 8192
+PARAMETER temperature 0.3
+PARAMETER top_p 0.9

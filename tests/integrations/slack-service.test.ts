@@ -29,6 +29,7 @@ vi.mock('@/lib/ai/limit-validator', () => ({
 vi.mock('@/lib/ai/provider', () => ({
   chatModel: vi.fn(() => 'mock-chat-model'),
   CHAT_MODEL: 'gpt-4o-mini',
+  RAG_MAX_CHUNKS: 5,
 }))
 
 vi.mock('ai', () => ({

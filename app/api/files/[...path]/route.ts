@@ -1,11 +1,10 @@
-import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 
 import { NextResponse } from 'next/server'
 
 import { getSession } from '@/lib/auth/session'
 import { prisma } from '@/lib/database/prisma-server'
-import { LOCAL_URL_PREFIX, resolveStoragePath, storageDriver } from '@/lib/storage'
+import { FileNotFoundError, LOCAL_URL_PREFIX, getFile, storageDriver } from '@/lib/storage'
 
 const CONTENT_TYPES: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -23,7 +22,7 @@ interface RouteParams {
 }
 
 /**
- * Sirve los archivos del driver de almacenamiento local.
+ * Sirve los archivos de los drivers `local` y `s3`.
  *
  * Todo archivo exige sesión. Si además pertenece a una base de conocimiento,
  * se comprueba que quien lo pide sea miembro de esa organización: los
@@ -31,7 +30,8 @@ interface RouteParams {
  * la URL.
  */
 export async function GET(_request: Request, { params }: RouteParams) {
-  if (storageDriver !== 'local') {
+  if (storageDriver === 'vercel-blob') {
+    // Con ese driver los archivos los sirve Vercel, no nosotros.
     return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
   }
 
@@ -43,13 +43,6 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
   const { path: segments } = await params
   const key = segments.map(decodeURIComponent).join('/')
-
-  let filePath: string
-  try {
-    filePath = resolveStoragePath(key)
-  } catch {
-    return NextResponse.json({ error: 'Ruta inválida' }, { status: 400 })
-  }
 
   const fileUrl = LOCAL_URL_PREFIX + segments.join('/')
   const knowledgeSource = await prisma.knowledgeSource.findFirst({
@@ -74,23 +67,25 @@ export async function GET(_request: Request, { params }: RouteParams) {
   }
 
   try {
-    const info = await stat(filePath)
-    if (!info.isFile()) {
-      return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
-    }
-
-    const contents = await readFile(filePath)
+    const file = await getFile(key)
     const contentType =
-      CONTENT_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+      file.contentType ??
+      CONTENT_TYPES[path.extname(key).toLowerCase()] ??
+      'application/octet-stream'
 
-    return new NextResponse(new Uint8Array(contents), {
+    return new NextResponse(new Uint8Array(file.body), {
       headers: {
         'Content-Type': contentType,
-        'Content-Length': String(info.size),
+        'Content-Length': String(file.size),
         'Cache-Control': 'private, max-age=3600',
       },
     })
-  } catch {
-    return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
+  } catch (error) {
+    if (error instanceof FileNotFoundError) {
+      return NextResponse.json({ error: 'No encontrado' }, { status: 404 })
+    }
+
+    console.error('[FILES] Error sirviendo archivo:', error)
+    return NextResponse.json({ error: 'Error al leer el archivo' }, { status: 500 })
   }
 }

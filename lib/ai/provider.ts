@@ -23,6 +23,18 @@ export const EMBEDDING_MODEL = process.env.EMBEDDING_MODEL || 'text-embedding-3-
  */
 export const EMBEDDING_DIMENSIONS = Number(process.env.EMBEDDING_DIMENSIONS || 1536)
 
+/** Fragmentos por petición de embeddings. Bájalo a 1 si tu servidor local no acepta lotes. */
+export const EMBEDDING_BATCH_SIZE = Number(process.env.EMBEDDING_BATCH_SIZE || 32)
+
+/**
+ * Fragmentos de documento que se inyectan como contexto en cada respuesta.
+ *
+ * Es el parámetro a bajar si el modelo tiene una ventana de contexto pequeña:
+ * cada fragmento son unos 800 caracteres (~200 tokens). Con la ventana por
+ * defecto de Ollama (4096 tokens) más de 5 fragmentos empieza a apretar.
+ */
+export const RAG_MAX_CHUNKS = Number(process.env.RAG_MAX_CHUNKS || 5)
+
 const provider = createOpenAI({ baseURL, apiKey })
 
 /** Modelo de chat para el AI SDK (streamText, generateText, ...). */

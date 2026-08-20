@@ -14,7 +14,8 @@
     "test": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:coverage": "vitest run --coverage",
-    "demo:seed": "bun run scripts/seed-demo.ts"
+    "demo:seed": "bun run scripts/seed-demo.ts",
+    "doctor": "bun run scripts/doctor.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.52",
@@ -46,6 +47,7 @@
     "@vercel/blob": "^2.0.0",
     "@xyflow/react": "^12.8.6",
     "ai": "^5.0.76",
+    "aws4fetch": "^1.0.20",
     "better-auth": "^1.3.27",
     "browser-image-compression": "^2.0.2",
     "class-variance-authority": "^0.7.1",

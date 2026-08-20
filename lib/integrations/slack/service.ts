@@ -7,7 +7,7 @@ import { buildSystemPrompt } from '@/lib/ai/prompt-utils'
 import { calculateTokens, calculateCost } from '@/lib/ai/token-calculator'
 import { trackTokenUsage } from '@/lib/ai/token-tracker'
 import { checkLimits } from '@/lib/ai/limit-validator'
-import { CHAT_MODEL, chatModel } from '@/lib/ai/provider'
+import { CHAT_MODEL, RAG_MAX_CHUNKS, chatModel } from '@/lib/ai/provider'
 
 const SLACK_API_URL = 'https://slack.com/api'
 const THINKING_MESSAGES = [
@@ -391,7 +391,7 @@ export const processSlackQuestion = async (
     const documentContext = await generateDocumentContext(
       trimmedQuestion,
       integration.organizationId,
-      5,
+      RAG_MAX_CHUNKS,
       categoryIds.length ? categoryIds : undefined
     )
     console.info('[SlackService] Document context generated', {

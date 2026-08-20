@@ -16,7 +16,7 @@ import { calculateTokens, calculateCost } from '@/lib/ai/token-calculator'
 import { trackTokenUsage } from '@/lib/ai/token-tracker'
 import { getUserAccessibleCategories } from '@/lib/auth/category-access'
 import { prisma } from '@/lib/database/prisma-server'
-import { CHAT_MODEL, chatModel } from '@/lib/ai/provider'
+import { CHAT_MODEL, RAG_MAX_CHUNKS, chatModel } from '@/lib/ai/provider'
 
 export const maxDuration = 30
 
@@ -132,7 +132,7 @@ export async function POST(req: Request) {
     const documentContext = await generateDocumentContext(
       lastMessageText,
       organizationId,
-      5,
+      RAG_MAX_CHUNKS,
       accessibleCategoryIds
     )
 

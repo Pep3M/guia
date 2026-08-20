@@ -12,12 +12,31 @@
 ```bash
 cp .env.example .env
 docker compose up -d
-docker compose exec ollama ollama pull qwen2.5:14b-instruct
-docker compose exec ollama ollama pull bge-m3
 ```
 
-El contenedor de la aplicación ejecuta `prisma migrate deploy` al arrancar, así
-que la base de datos queda lista sola.
+El servicio `ollama-init` descarga los modelos y crea la variante de chat con la
+ventana de contexto ampliada; la primera vez tarda, son varios GB. El contenedor
+de la aplicación ejecuta `prisma migrate deploy` al arrancar, así que la base de
+datos queda lista sola.
+
+Con GPU NVIDIA (requiere `nvidia-container-toolkit`):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+```
+
+## Comprobar que todo funciona
+
+```bash
+docker compose --profile tools run --rm tools bun run doctor
+```
+
+Verifica contra los servicios reales las cuatro cosas que rompen una
+instalación: base de datos con pgvector, modelo de chat, modelo de embeddings
+con su dimensión, y escritura/lectura en el almacenamiento. Además detecta si el
+modelo está truncando el contexto, que es el fallo más silencioso de todos.
+
+Ejecútalo siempre antes de dar una instalación por buena.
 
 ## Instalación manual
 
@@ -29,9 +48,31 @@ bun run build
 bun run start
 ```
 
-Con `STORAGE_DRIVER=local`, el proceso necesita permiso de escritura sobre
-`STORAGE_PATH`. Los archivos se sirven por `/api/files/...`, que exige sesión y
-—para documentos— pertenencia a la organización dueña del documento.
+## Almacenamiento de archivos
+
+| Driver | Cuándo |
+|---|---|
+| `local` | Una sola máquina. Cero servicios extra. Por defecto |
+| `s3` | Varias réplicas de la aplicación, replicación o backups con herramientas de S3 |
+| `vercel-blob` | Sólo desplegando en Vercel |
+
+Con `local`, el proceso necesita permiso de escritura sobre `STORAGE_PATH`.
+
+Con `s3` sirve cualquier implementación compatible: MinIO, Ceph, Garage,
+Cloudflare R2, Backblaze B2 o el propio AWS S3. El compose trae MinIO listo:
+
+```bash
+STORAGE_DRIVER=s3 docker compose --profile minio up -d
+```
+
+`S3_FORCE_PATH_STYLE` debe estar en `true` para MinIO, Ceph y Garage, y en
+`false` para R2, B2 y AWS.
+
+En los dos primeros drivers los archivos se sirven por `/api/files/...`, que
+exige sesión y —para documentos— pertenencia a la organización dueña. Con
+`vercel-blob` la URL es pública y ajena a nosotros: cualquiera que la conozca
+accede al documento, y por eso no es el driver recomendado para material
+interno.
 
 ## Elección de modelos
 
@@ -41,6 +82,26 @@ Con modelos locales la calidad de respuesta depende mucho del tamaño. Un 7–8B
 respuestas pobres para uso empresarial; a partir de 14B cuantizado el resultado
 es utilizable y con 24–32B es bueno. En español funcionan bien `qwen2.5`,
 `llama3.3` y `mistral-small`.
+
+#### La ventana de contexto: el fallo silencioso
+
+Ollama usa `num_ctx = 4096` por defecto y **descarta sin avisar** lo que no cabe.
+Con RAG eso es grave: el prompt de sistema, los fragmentos recuperados y el
+historial de conversación superan ese límite enseguida, y el resultado son
+respuestas pobres sin ningún error en los registros. Parece que el modelo es
+malo cuando en realidad no está viendo los documentos.
+
+Por eso el stack no usa el modelo base directamente, sino una variante creada
+desde `docker/ollama/Modelfile.chat` con `num_ctx 8192`. Si instalas a mano:
+
+```bash
+ollama pull qwen2.5:14b-instruct
+ollama create guia-chat -f docker/ollama/Modelfile.chat
+```
+
+Ampliar el contexto cuesta VRAM. Si vas justo de memoria, la alternativa es
+reducir cuánto contexto se inyecta bajando `RAG_MAX_CHUNKS` (cada fragmento son
+unos 200 tokens). `bun run doctor` avisa si el modelo está truncando.
 
 ### Embeddings
 
@@ -53,6 +114,10 @@ español conviene un modelo multilingüe:
 | `multilingual-e5-large` | 1024 | Alternativa sólida en español |
 | `nomic-embed-text` | 768 | Ligero, calidad menor en español |
 | `text-embedding-3-small` (OpenAI) | 1536 | Referencia de calidad, no autohospedado |
+
+Los fragmentos se envían por lotes de `EMBEDDING_BATCH_SIZE` (32 por defecto).
+Algunos servidores locales no aceptan `input` como array en `/v1/embeddings` o
+limitan el tamaño de la petición; en ese caso, `EMBEDDING_BATCH_SIZE=1`.
 
 ## Cambiar el modelo de embeddings
 
@@ -102,4 +167,8 @@ Dos cosas que respaldar:
 
 1. La base de datos (`pg_dump`), que contiene documentos indexados, conversaciones
    y permisos.
-2. El directorio `STORAGE_PATH`, con los archivos originales.
+2. Los archivos originales: el directorio `STORAGE_PATH` con el driver `local`,
+   o el bucket con el driver `s3` (`mc mirror`, `rclone` o la replicación del
+   propio MinIO).
+
+Los modelos no hace falta respaldarlos: se vuelven a descargar.
